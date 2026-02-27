@@ -32,7 +32,7 @@ def connect_wifi(ssid, pwd):
 
 if __name__=="__main__":
     # 这里仅为示例，自定义场景请修改为您自己的模型路径、标签名称、模型输入大小
-    kmodel_path="/fruit_det_yolo11n_320.kmodel"
+    kmodel_path="/sdcard/examples/kmodel/fruit_det_yolo11n_320.kmodel"
     labels = ["apple","banana","orange"]
     model_input_size=[320,320]
 
@@ -58,7 +58,7 @@ if __name__=="__main__":
                 max_boxes_num=50,
                 debug_mode=0)
     yolo.config_preprocess()
-    
+
     # 初始化网络
     udp_socket = None
     if connect_wifi(WIFI_SSID, WIFI_PASSWORD):
@@ -69,27 +69,27 @@ if __name__=="__main__":
             # 逐帧推理
             img=pl.get_frame()
             res=yolo.run(img)
-            
-            # 通过UDP发送结果
-            if res and udp_socket:
+
+            # 通过UDP发送结果（每帧都发送，无目标时发送空数组）
+            # res 的结构: [boxes_list, class_ids_list, scores_list]
+            if udp_socket:
                 payload = []
-                for det in res:
+                if res:
                     try:
-                        # 提取类别和置信度，处理对象和元组/列表格式
-                        c_id = det.classid if hasattr(det, 'classid') else (det[4] if type(det) in (list, tuple) and len(det) > 4 else 0)
-                        conf = det.score if hasattr(det, 'score') else (det[5] if type(det) in (list, tuple) and len(det) > 5 else 0.0)
-                        
-                        label_name = labels[int(c_id)] if 0 <= int(c_id) < len(labels) else str(c_id)
-                        payload.append({"label": label_name, "confidence": float(conf)})
+                        boxes, class_ids, scores = res[0], res[1], res[2]
+                        for i in range(len(class_ids)):
+                            c_id = class_ids[i]
+                            conf = scores[i]
+                            label_name = labels[int(c_id)] if 0 <= int(c_id) < len(labels) else str(c_id)
+                            payload.append({"label": label_name, "confidence": float(conf)})
                     except Exception as e:
-                        pass
-                
-                if payload:
-                    try:
-                        msg = json.dumps(payload)
-                        udp_socket.sendto(msg.encode('utf-8'), (SERVER_IP, SERVER_PORT))
-                    except Exception as e:
-                        print("UDP send error:", e)
+                        print("Parse error:", e)
+
+                try:
+                    msg = json.dumps(payload)
+                    udp_socket.sendto(msg.encode('utf-8'), (SERVER_IP, SERVER_PORT))
+                except Exception as e:
+                    print("UDP send error:", e)
 
             yolo.draw_result(res,pl.osd_img)
             pl.show_image()
